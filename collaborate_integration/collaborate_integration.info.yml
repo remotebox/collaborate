@@ -1,0 +1,7 @@
+name: 'Collaborate integration'
+type: module
+description: 'Integrates ASO with the Blackboard Collaborate platform.'
+core: 8.x
+package: 'UAL'
+dependencies:
+  - inline_entity_form:inline_entity_form

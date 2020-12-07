@@ -1,0 +1,315 @@
+<?php
+
+/**
+ * @file
+ * Contains events_information_management.module.
+ */
+
+use Drupal\collaborate_integration\Entity\CollaborateSession;
+use Drupal\Core\Datetime\DrupalDateTime;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Url;
+use Drupal\datetime\Plugin\Field\FieldType\DateTimeItemInterface;
+use Drupal\node\Entity\Node;
+use Drupal\user\Entity\User;
+
+/**
+ * Implements hook_help().
+ *
+ * @param $route_name
+ * @param \Drupal\Core\Routing\RouteMatchInterface $route_match
+ *
+ * @return string
+ */
+function events_information_management_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the events_information_management module.
+    case 'help.page.events_information_management':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('This module controls access to attendee information and post event information.') . '</p>';
+      return $output;
+
+    default:
+  }
+}
+
+/**
+ * Implements hook_preprocess_HOOK().
+ *
+ * This preprocess will act on tutorial or workshop content types.
+ * It has a few functions relating to events:
+ * - Passes a flag to the twig templates if the event has finished, which
+ *   will then show a message and prevent registrations from happening.
+ * - If a Collaborate session is set on the node then it will pass the join
+ *   link for students to the twig templates. If it is a staff member then
+ *   it will check if the staff member is authorised to see all event
+ *   information and pass the join link + guest link.
+ * - It will check if the registered status is attending, in which case it will
+ *   pass a message to the twig template to show instead of the register form.
+ * - It also adds cache contexts to prevent users seeing registration messages
+ *   when they haven't registered.
+ *
+ * @param array $variables
+ *   An associative array containing:
+ *   - content: An array of content types.
+ *
+ * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+ * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException|\GuzzleHttp\Exception\GuzzleException
+ */
+function events_information_management_preprocess_node(array &$variables) {
+  if (!$variables["view_mode"] === 'full') {
+    return;
+  }
+  /** @var \Drupal\node\NodeInterface $node */
+  $node = $variables['node'];
+  $bundle = $node->bundle();
+  if (($bundle != 'tutorial' || $bundle != 'workshop') && !isset($variables["elements"]["field_event_registration"])) {
+    return;
+  }
+
+  $now = new DrupalDateTime('now', 'Europe/London');
+  $start = DrupalDateTime::createFromFormat(
+    'Y-m-d\TH:i:s', $node->get('field_event_time')->value,
+    DateTimeItemInterface::STORAGE_TIMEZONE
+  )->setTimezone(new \DateTimeZone('Europe/London'));
+  $end = DrupalDateTime::createFromFormat(
+    'Y-m-d\TH:i:s', $node->get('field_event_time')->end_value,
+    DateTimeItemInterface::STORAGE_TIMEZONE
+  )->setTimezone(new \DateTimeZone('Europe/London'));
+
+  // Trigger the archive message if the current date has passed the
+  // the date/time of the event.
+  if ($end <= $now) {
+    // Pass twig the flag to show the session archived message.
+    $variables['archive_event'] = TRUE;
+  }
+
+  $user_entity = \Drupal::entityTypeManager()
+    ->getStorage('user')->load(\Drupal::currentUser()->id());
+  $ldap_role = $user_entity->get('field_ldap_role')->value;
+
+  if ($ldap_role == 'STAFF') {
+    // Check if they are named in the management of the session.
+    $authorised_ids[] = $node->getOwnerId();
+    $authorised_ids[] = $node->get('field_event_tutor')->target_id;
+    $auth_field = array_column($node->get('field_event_additional_access')->getValue(), 'target_id');
+    if (!empty($auth_field)) {
+      $authorised_ids[] = $auth_field;
+    }
+    if (in_array($user_entity->id(), $authorised_ids)) {
+      $variables['show_attendee'] = TRUE;
+      $variables['show_attended'] = TRUE;
+      $collaborate_session_ref = $node->hasField('field_collaborate_session_ref') ? $node->get('field_collaborate_session_ref')->target_id : FALSE;
+      if ($collaborate_session_ref) {
+        $enrolment = getEnrolment($node, $user_entity);
+        if ($enrolment) {
+          $variables['sessionLink'] = \Drupal::service(
+            'ual_tools.bootstrap_elements'
+          )->buttonLink(
+            'fas fa-chalkboard-teacher',
+            'Your Collaborate session link',
+            Url::fromUri($enrolment->permanentUrl)->toString()
+          );
+        }
+        $collaborate_entity = \Drupal::entityTypeManager()
+          ->getStorage('collaborate_session')
+          ->load($collaborate_session_ref);
+        if ($collaborate_entity instanceof CollaborateSession) {
+          $variables['guestLink'] = \Drupal::service(
+            'ual_tools.bootstrap_elements'
+          )->buttonLink(
+            'far fa-user',
+            'Collaborate link for guests',
+            Url::fromUri($collaborate_entity->get('guestURL')->value)
+              ->toString()
+          );
+        }
+      }
+    }
+    else {
+      $process_as_student = TRUE;
+    }
+  }
+
+  if ($ldap_role == 'STUDENTS' || isset($process_as_student) || empty($ldap_role)) {
+
+    $user_status = getRegistrationStatus($node, $user_entity);
+    if ($user_status->attending === TRUE) {
+      // Pass twig the flag to show field_event_attendee_information.
+      $variables['show_attendee'] = TRUE;
+      // Pass twig the flag to show the already registered message.
+      $variables['registered'] = TRUE;
+      // Pass twig the SID of the registration so the user can cancel.
+      $variables['sid'] = $user_status->sid;
+
+      $collaborate_session_ref = $node->hasField('field_collaborate_session_ref') ? $node->get('field_collaborate_session_ref')->target_id : FALSE;
+      if ($collaborate_session_ref) {
+        $not_expired = ($now <= $end);
+        $within_15 = ($now >= $start->modify('- 15 mins'));
+        if ($not_expired && $within_15) {
+          $enrolment = getEnrolment($node, $user_entity);
+          if ($enrolment) {
+            // Within 15 minutes until the event start and is not past the
+            // end time so show the button.
+            $variables['sessionLink'] = \Drupal::service(
+              'ual_tools.bootstrap_elements'
+            )->buttonLink(
+              'fas fa-chalkboard-teacher',
+              'Join session',
+              Url::fromUri($enrolment->permanentUrl)->toString(),
+              FALSE,
+              'join-' . $user_status->sid,
+              ['collaborate-launch'],
+              [
+                'data-sid' => $user_status->sid,
+                'data-status' => $user_status->status,
+              ]
+            );
+            $variables['sessionLink']['#attached']['library'][] = 'collaborate_integration/change_status';
+          }
+        }
+        else {
+          // Show the button disabled with message.
+          $variables['sessionLink'] = \Drupal::service(
+            'ual_tools.bootstrap_elements'
+          )->buttonLink(
+            'fas fa-chalkboard-teacher',
+            'Join session',
+            '#',
+            TRUE
+          );
+        }
+
+      }
+    }
+    if ($user_status->attended === TRUE) {
+      // Pass flag to show the attended related information.
+      $variables['show_attended'] = TRUE;
+    }
+  }
+
+  // $variables['#cache']['contexts'][] = 'session';
+  $variables['#cache']['contexts'][] = 'url';
+  $variables['#cache']['contexts'][] = 'user';
+}
+
+/**
+ * Get the registration status information.
+ *
+ * This helper function returns the registration information.
+ * The object should contain:
+ * - sid: int.
+ * - attending: true|false.
+ * - attended: true|false.
+ * - status: string.
+ *
+ * @param \Drupal\node\Entity\Node $node
+ *   The node entity.
+ * @param \Drupal\user\Entity\User $user
+ *   The user entity.
+ *
+ * @return object
+ *   An object with registration state information.
+ *
+ * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+ * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+ */
+function getRegistrationStatus(Node $node, User $user) {
+  $user_status = (object) [
+    'sid' => 0,
+    'attending' => FALSE,
+    'attended' => FALSE,
+    'status' => '',
+  ];
+
+  $ws_storage = \Drupal::entityTypeManager()
+    ->getStorage('webform_submission');
+  $webform_submissions = $ws_storage->loadByProperties([
+    'entity_type' => 'node',
+    'entity_id' => $node->id(),
+    'webform_id' => ['tutorial', 'workshop'],
+  ]);
+
+  if (empty($webform_submissions)) {
+    return $user_status;
+  }
+
+  $related_submissions = [];
+  foreach ($webform_submissions as $submission) {
+    if ($submission->getElementData('student_id') == $user->id()) {
+      $related_submissions[$submission->id()] = $submission->getData();
+    }
+  }
+
+  if (empty($related_submissions)) {
+    return $user_status;
+  }
+
+  krsort($related_submissions, SORT_NUMERIC);
+  foreach ($related_submissions as $key => $unused) {
+    $user_status->sid = $key;
+    break;
+  }
+
+  $user_status->status = $related_submissions[$user_status->sid]['registration_status'];
+
+  if (in_array(
+    $user_status->status,
+    [
+      'attending',
+      'attended',
+      'timetabled_by_course',
+    ]
+  )
+  ) {
+    $user_status->attending = TRUE;
+  }
+  if ($user_status->status == 'attended') {
+    $user_status->attended = TRUE;
+  }
+
+  return $user_status;
+}
+
+/**
+ * Get the enrolment information from Collaborate.
+ *
+ * This helper function returns the enrolment information from Collaborate.
+ * Or false if there is no enrolment.
+ * The object should contain:
+ *  - id: string.
+ *  - userId: string.
+ *  - launchingRole: string.
+ *  - editingPermission: string.
+ *  - permanentUrl: string.
+ *
+ * @param \Drupal\node\Entity\Node $node
+ *   The node entity.
+ * @param \Drupal\user\Entity\User $user
+ *   The user entity.
+ *
+ * @return object|false
+ *   Returns the Collaborate enrolment information or false if no enrolment.
+ *
+ * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+ * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+ * @throws \GuzzleHttp\Exception\GuzzleException
+ */
+function getEnrolment(Node $node, User $user) {
+  $collaborate_target_id = $node->get('field_collaborate_session_ref')->target_id;
+  if (!empty($collaborate_target_id)) {
+    /** @var Drupal\collaborate_integration\CollaborateService $collaborate */
+    $collaborate = \Drupal::service('collaborate_integration.collaborate');
+    $collaborate_entity = \Drupal::entityTypeManager()
+      ->getStorage('collaborate_session')
+      ->load($collaborate_target_id);
+    $enrolment = $collaborate->getEnrolment($collaborate_entity, $user);
+    if ($enrolment) {
+      return $enrolment;
+    }
+    else {
+      return FALSE;
+    }
+  }
+}

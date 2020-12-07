@@ -1,0 +1,11 @@
+<?php
+
+/**
+ * Install Collaborate session entity.
+ */
+function collaborate_integration_update_8701(&$sandbox) {
+  $entity_type = \Drupal::entityTypeManager()->getDefinition('collaborate_session');
+  \Drupal::entityDefinitionUpdateManager()->installEntityType($entity_type);
+
+//  \Drupal::service('entity.definition_update_manager')->applyUpdates();
+}

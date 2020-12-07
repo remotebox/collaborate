@@ -1,0 +1,60 @@
+<?php
+
+/**
+ * @file
+ * Contains events_register.module.
+ */
+
+use Drupal\Core\Access\AccessResult;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\node\NodeInterface;
+
+/**
+ * Implements hook_help().
+ */
+function events_register_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the events_register module.
+    case 'help.page.events_register':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('Displays the users events registers.') . '</p>';
+      return $output;
+
+    default:
+  }
+}
+
+
+/**
+ * Adds bootstrap radio/checkbox inline class to options
+ */
+function events_register_inline_radios($element, $form_state) {
+  $options = array_keys($element['#options']);
+  foreach ($options as $values) {
+    $element[$values]['#wrapper_attributes']['class'][] = 'form-check-inline ';
+  }
+  return $element;
+}
+
+
+/**
+ * Implements hook_node_access().
+ *
+ * @param \Drupal\node\NodeInterface $node
+ * @param $op
+ * @param \Drupal\Core\Session\AccountInterface $account
+ *
+ * @return \Drupal\Core\Access\AccessResultAllowed|\Drupal\Core\Access\AccessResultForbidden
+ */
+function events_register_node_access(NodeInterface $node, $op, AccountInterface $account) {
+  if ($op == 'webform_submission_view') {
+    if (!$account->hasPermission('access others registers')) {
+      return AccessResult::forbidden();
+    }
+    else {
+      return AccessResult::allowed();
+    }
+  }
+}

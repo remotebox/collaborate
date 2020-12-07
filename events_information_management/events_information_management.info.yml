@@ -1,0 +1,5 @@
+name: 'Events information management'
+type: module
+description: 'This module controls access to attendee information and post event information.'
+core: 8.x
+package: 'Custom'

@@ -1,0 +1,20 @@
+events_register.events_register_form:
+  path: '/tools/register'
+  defaults:
+    _form: '\Drupal\events_register\Form\EventsRegisterForm'
+    _title: 'Register'
+  requirements:
+    _permission: 'access own event registers'
+
+events_register.register_tab_controller_registerLink:
+  path: '/node/{node}/registrations'
+  defaults:
+    _controller: '\Drupal\events_register\Controller\RegisterTabController::registerLink'
+    _title: 'Registrations'
+  options:
+    parameters:
+      node:
+        type: 'entity:node'
+  requirements:
+    _permission: 'access own event registers'
+    _custom_access: '\Drupal\events_register\Controller\RegisterTabController::checkNode'

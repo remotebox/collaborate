@@ -1,0 +1,4 @@
+event_register.register_tab:
+  route_name: events_register.register_tab_controller_registerLink
+  title: 'Register'
+  base_route: entity.node.canonical

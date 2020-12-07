@@ -1,0 +1,25 @@
+add collaborate session entities:
+  title: 'Create new Collaborate session entities'
+
+administer collaborate session entities:
+  title: 'Administer Collaborate session entities'
+  description: 'Allow to access the administration form to configure Collaborate session entities.'
+  restrict access: true
+
+delete own collaborate session entities:
+  title: 'Delete own Collaborate session entities'
+
+delete any collaborate session entities:
+  title: 'Delete any Collaborate session entities'
+
+edit own collaborate session entities:
+  title: 'Edit own Collaborate session entities'
+
+edit any collaborate session entities:
+  title: 'Edit any Collaborate session entities'
+
+view published collaborate session entities:
+  title: 'View published Collaborate session entities'
+
+view unpublished collaborate session entities:
+  title: 'View unpublished Collaborate session entities'

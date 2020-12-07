@@ -1,0 +1,31 @@
+collaborate_integration.config:
+  title: 'Collaborate integration'
+  route_name: collaborate_integration.auth_settings
+  description: "Configure Collaborate's settings."
+  parent: system.admin_config_system
+
+collaborate_integration.auth_settings:
+  title: 'Authentication settings'
+  route_name: collaborate_integration.auth_settings
+  description: "Configure Collaborate's API authentication settings."
+  parent: collaborate_integration.config
+
+collaborate_integration.site_settings:
+  title: 'Site settings'
+  route_name: collaborate_integration.site_settings
+  description: "Configure Collaborate's site based settings."
+  parent: collaborate_integration.config
+
+# Collaborate session menu items definition
+entity.collaborate_session.collection:
+  title: 'Collaborate session list'
+  route_name: entity.collaborate_session.collection
+  description: 'List Collaborate session entities'
+  parent: system.admin_structure
+  weight: 100
+
+collaborate_session.admin.structure.settings:
+  title: 'Collaborate session settings'
+  description: 'Configure Collaborate session entities'
+  route_name: collaborate_session.settings
+  parent: system.admin_structure

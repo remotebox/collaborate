@@ -1,0 +1,543 @@
+<?php
+
+/**
+ * @file
+ * Contains collaborate_integration.module.
+ */
+
+use Drupal\collaborate_integration\Entity\CollaborateSession;
+use Drupal\Core\Datetime\DrupalDateTime;
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Form\FormState;
+use Drupal\Core\Link;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Url;
+use Drupal\node\NodeInterface;
+use Drupal\user\Entity\User;
+
+/**
+ * Implements hook_help().
+ */
+function collaborate_integration_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the blackboard_integration module.
+    case 'help.page.collaborate_integration':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('Integrates ASO with the Blackboard Collaborate platform.') . '</p>';
+      return $output;
+
+    default:
+  }
+}
+
+/**
+ * Perform alterations before an entity form is included in the IEF widget.
+ *
+ * This alter gets the user inputted values from tutorial and workshop node/add.
+ *
+ * @param array $entity_form
+ *   Nested array of form elements that comprise the entity form.
+ * @param \Drupal\Core\Form\FormState $form_state
+ *   The form state of the parent form.
+ */
+function collaborate_integration_inline_entity_form_entity_form_alter(array &$entity_form, FormState &$form_state) {
+  if ($entity_form['#entity_type'] == 'collaborate_session') {
+    $input = $form_state->getUserInput();
+    $entity_form['name']['widget'][0]['value']['#default_value'] = $input["title"][0]["value"];
+    $entity_form["description"]["widget"][0]["value"]["#default_value"] = strip_tags($input["field_event_intro"][0]["value"]);
+    $entity_form["datetime"]["widget"][0]["value"]["#default_value"] = new DrupalDateTime($input["field_event_time"][0]["value"]['date'] . ' ' . $input["field_event_time"][0]["value"]['time'], 'Europe/London');
+    $entity_form["datetime"]["widget"][0]["end_value"]["#default_value"] = new DrupalDateTime($input["field_event_time"][0]["end_value"]['date'] . ' ' . $input["field_event_time"][0]["end_value"]['time'], 'Europe/London');
+    $entity_form['sessionId']['widget'][0]['value']['#disabled'] = TRUE;
+    $entity_form['guestURL']['widget'][0]['value']['#disabled'] = TRUE;
+
+  }
+}
+
+/**
+ * Creates a Collaborate session entity.
+ *
+ * When adding a tutorial or workshop this detects if there is a Collaborate
+ * form attached.  It will then get the Collaborate entity and enrol relevant
+ * users onto the session.
+ * It will also update the Collaborate entity entity_id, entity_type and
+ * sessionExitUrl field if empty.
+ *
+ * @param \Drupal\node\NodeInterface $node
+ *   The node interface.
+ *
+ * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+ * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+ * @throws \Drupal\Core\Entity\EntityStorageException
+ * @throws \GuzzleHttp\Exception\GuzzleException
+ */
+function collaborate_integration_node_insert(NodeInterface $node) {
+  $target_id = collaborate_session_ref_check($node);
+  if (!$target_id) {
+    return;
+  }
+
+  $entity = \Drupal::entityTypeManager()
+    ->getStorage('collaborate_session')
+    ->load($target_id);
+  if (!$entity instanceof CollaborateSession) {
+    \Drupal::logger('collaborate_integration')->error(
+      t(
+        'Could not load the Collaborate entity attached to node: @nid',
+        ['@nid' => $node->id()]
+      )
+    );
+    \Drupal::messenger()->addError(
+      t('The site could not load the Collaborate entity.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+        [
+          '@email' => $link = Link::fromTextAndUrl(
+            t('academicsupportonline@arts.ac.uk'),
+            Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+          )->toString(),
+        ]
+      )
+    );
+    return;
+  }
+
+  /** @var Drupal\collaborate_integration\CollaborateService $collaborate */
+  $collaborate = \Drupal::service('collaborate_integration.collaborate');
+
+  if (empty($entity->get('sessionId')->value)) {
+    \Drupal::logger('collaborate_integration')->error(
+      t('Could not find the Collaborate session ID attached to node: @nid, and entity: @eid.',
+        ['@nid' => $node->id(), '@eid' => $entity->id()]
+      )
+    );
+    \Drupal::messenger()->addError(
+      t('The site could not find the Collaborate session ID.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+        [
+          '@email' => $link = Link::fromTextAndUrl(
+            t('academicsupportonline@arts.ac.uk'),
+            Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+          )->toString(),
+        ]
+      )
+    );
+    return;
+  }
+
+  // Enrol content creator.
+  $current_user = User::load(\Drupal::currentUser()->id());
+  $creator_enrol = $collaborate->enrolUser(
+    $entity,
+    'moderator',
+    $current_user
+  );
+  if ($creator_enrol === FALSE) {
+    \Drupal::logger('collaborate_integration')->error(
+      t('Could not enrol the creator attached to node: @nid, entity: @eid, user: @uid',
+        [
+          '@nid' => $node->id(),
+          '@eid' => $entity->id(),
+          '@uid' => $current_user->id(),
+        ]
+      )
+    );
+    \Drupal::messenger()->addError(
+      t('The site could not enrol you onto the session.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+        [
+          '@email' => $link = Link::fromTextAndUrl(
+            t('academicsupportonline@arts.ac.uk'),
+            Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+          )->toString(),
+        ]
+      )
+    );
+  }
+
+  // Enrol additional accounts.
+  $tutor_id = array_column($node->get('field_event_tutor')
+    ->getValue(), 'target_id');
+  $additional_ids = array_column($node->get('field_event_additional_access')
+    ->getValue(), 'target_id');
+  $accounts = \Drupal::entityTypeManager()
+    ->getStorage('user')
+    ->loadMultiple(array_merge($tutor_id, $additional_ids));
+  foreach ($accounts as $account) {
+    if ($collaborate->enrolUser($entity, 'moderator', $account) === FALSE) {
+      \Drupal::logger('collaborate_integration')->error(
+        t(
+          'Could not enrol the additional user attached to node: @nid, entity: @eid, user: @uid',
+          [
+            '@nid' => $node->id(),
+            '@eid' => $entity->id(),
+            '@uid' => $account->id(),
+          ]
+        )
+      );
+      \Drupal::messenger()->addError(
+        t('The site could not add account @uid onto the session.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+          [
+            '@email' => $link = Link::fromTextAndUrl(
+              t('academicsupportonline@arts.ac.uk'),
+              Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+            )->toString(),
+            '@uid' => $account->id(),
+          ]
+        )
+      );
+    }
+  }
+
+  $entity->set('entity_id', $node->id());
+  $entity->set('entity_type', 'node');
+  if (empty($entity->get('sessionExitUrl')->value)) {
+    $entity->set('sessionExitUrl', '/face-to-face-support/' . $node->id());
+  }
+  $entity->save();
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_update() for node entities.
+ *
+ * @param \Drupal\node\NodeInterface $node
+ *   The node interface.
+ *
+ * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+ * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+ * @throws \Drupal\Core\Entity\EntityStorageException|\GuzzleHttp\Exception\GuzzleException
+ */
+function collaborate_integration_node_update(NodeInterface $node) {
+  $target_id = collaborate_session_ref_check($node);
+  if (!$target_id) {
+    return;
+  }
+
+  if (!empty($node->original)) {
+    $original_title = $node->original->get('title')->value;
+    $original_description = $node->original->get('field_event_intro')->value;
+    $original_start = $node->original->get('field_event_time')->value;
+    $original_end = $node->original->get('field_event_time')->end_value;
+    $original_tutor = $node->original->get('field_event_tutor')->target_id;
+    $original_authorised = array_column($node->original->get('field_event_additional_access')->getValue(), 'target_id');
+    $update_title = $node->get('title')->value;
+    $update_description = $node->get('field_event_intro')->value;
+    $update_start = $node->get('field_event_time')->value;
+    $update_end = $node->get('field_event_time')->end_value;
+    $update_tutor = $node->get('field_event_tutor')->target_id;
+    $update_authorised = array_column($node->get('field_event_additional_access')->getValue(), 'target_id');
+
+    $entity = \Drupal::entityTypeManager()
+      ->getStorage('collaborate_session')
+      ->load($target_id);
+    /** @var Drupal\collaborate_integration\CollaborateService $collaborate */
+    $collaborate = \Drupal::service('collaborate_integration.collaborate');
+
+    $entity_update = FALSE;
+
+    if ($original_title != $update_title) {
+      $entity->get('name')->value = $update_title;
+      $entity_update = TRUE;
+    }
+
+    if ($original_description != $update_description) {
+      $entity->get('description')->value = $update_description;
+      $entity_update = TRUE;
+    }
+
+    if (($original_start != $update_start) || ($original_end != $update_end)) {
+      $entity->get('datetime')->value = $update_start;
+      $entity->get('datetime')->end_value = $update_end;
+      $entity_update = TRUE;
+    }
+
+    if ($entity_update === TRUE) {
+      $entity->save();
+      if ($collaborate->updateSession($entity) === FALSE) {
+        \Drupal::logger('collaborate_integration')->error(
+          t(
+            'Could not update the Collaborate session attached to node: @nid, entity: @eid.',
+            ['@nid' => $entity->get('entity_id')->value, '@eid' => $entity->id()]
+          )
+        );
+        \Drupal::messenger()->addError(
+          t('The site could not update the Collaborate session.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+            [
+              '@email' => $link = Link::fromTextAndUrl(
+                t('academicsupportonline@arts.ac.uk'),
+                Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+              )->toString(),
+            ]
+          )
+        );
+      }
+    }
+
+    // @todo: Monitor if we need to do a full check on enrolled moderator users.
+    if ($original_tutor != $update_tutor) {
+      $original_tutor_entity = \Drupal::entityTypeManager()
+        ->getStorage('user')
+        ->load($original_tutor);
+      // If a user creates an event and is the tutor but later changes the tutor
+      // we don't want to delete their enrolment as they should still have
+      // access to the session by been the creator.
+      if ($node->getOwnerId() !== $original_tutor_entity->id()) {
+        if ($collaborate->deleteEnrolment($entity, $original_tutor_entity) === FALSE) {
+          \Drupal::logger('collaborate_integration')->error(
+            t(
+              'Could not remove the tutor (@original_tutor) for the session attached to node: @nid, entity: @eid.',
+              [
+                '@nid' => $entity->get('entity_id')->value,
+                '@eid' => $entity->id(),
+                '@original_tutor' => $original_tutor,
+              ]
+            )
+          );
+          \Drupal::messenger()->addError(
+            t('The site could not remove the original tutor.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+              [
+                '@email' => $link = Link::fromTextAndUrl(
+                  t('academicsupportonline@arts.ac.uk'),
+                  Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+                )->toString(),
+              ]
+            )
+          );
+        }
+      }
+
+      $update_tutor_entity = \Drupal::entityTypeManager()
+        ->getStorage('user')
+        ->load($update_tutor);
+      if ($collaborate->enrolUser($entity, 'moderator', $update_tutor_entity) === FALSE) {
+        \Drupal::logger('collaborate_integration')->error(
+          t(
+            'Could not enrol the tutor (@update_tutor) for the session attached to node: @nid, entity: @eid.',
+            [
+              '@nid' => $entity->get('entity_id')->value,
+              '@eid' => $entity->id(),
+              '@update_tutor' => $update_tutor,
+            ]
+          )
+        );
+        \Drupal::messenger()->addError(
+          t('The site could not update the tutor for this session.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+            [
+              '@email' => $link = Link::fromTextAndUrl(
+                t('academicsupportonline@arts.ac.uk'),
+                Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+              )->toString(),
+            ]
+          )
+        );
+      }
+    }
+
+    if ($original_authorised != $update_authorised) {
+      $original_auth_entities = \Drupal::entityTypeManager()
+        ->getStorage('user')
+        ->loadMultiple($original_authorised);
+      $update_auth_entities = \Drupal::entityTypeManager()
+        ->getStorage('user')
+        ->loadMultiple($update_authorised);
+      foreach ($original_auth_entities as $original_auth_entity) {
+        if ($node->getOwnerId() !== $original_tutor_entity->id()) {
+          if ($collaborate->deleteEnrolment($entity, $original_auth_entity) === FALSE) {
+            \Drupal::logger('collaborate_integration')->error(
+              t(
+                'Could not remove the user (@original_auth) from authorised access for the session attached to node: @nid, entity: @eid.',
+                [
+                  '@nid' => $entity->get('entity_id')->value,
+                  '@eid' => $entity->id(),
+                  '@original_auth' => $original_auth_entity->id(),
+                ]
+              )
+            );
+            \Drupal::messenger()->addError(
+              t('The site could not remove users from the authorised access field.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+                [
+                  '@email' => $link = Link::fromTextAndUrl(
+                    t('academicsupportonline@arts.ac.uk'),
+                    Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+                  )->toString(),
+                ]
+              )
+            );
+          }
+        }
+      }
+      foreach ($update_auth_entities as $update_auth_entity) {
+        if ($collaborate->enrolUser($entity, 'moderator', $update_auth_entity) === FALSE) {
+          \Drupal::logger('collaborate_integration')->error(
+            t(
+              'Could not add the user (@original_auth) to authorised access for the session attached to node: @nid, entity: @eid.',
+              [
+                '@nid' => $entity->get('entity_id')->value,
+                '@eid' => $entity->id(),
+                '@original_auth' => $update_auth_entity->id(),
+              ]
+            )
+          );
+          \Drupal::messenger()->addError(
+            t('The site could not add users to the authorised access field.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+              [
+                '@email' => $link = Link::fromTextAndUrl(
+                  t('academicsupportonline@arts.ac.uk'),
+                  Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+                )->toString(),
+              ]
+            )
+          );
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Creates a session on the Collaborate server.
+ *
+ * Creates a session in Collaborate and updates the collaborate session entity
+ * fields with the sessionId and guestURL.
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $entity
+ *   Collaborate entity consisting of session information.
+ *
+ * @throws \Drupal\Core\Entity\EntityStorageException
+ * @throws \GuzzleHttp\Exception\GuzzleException
+ */
+function collaborate_integration_collaborate_session_insert(EntityInterface $entity) {
+  /** @var Drupal\collaborate_integration\CollaborateService $collaborate */
+  $collaborate = \Drupal::service('collaborate_integration.collaborate');
+
+  $collaborate_session = $collaborate->createSession($entity);
+  if ($collaborate_session === FALSE) {
+    \Drupal::logger('collaborate_integration')->error(
+      t(
+        'Could not create the Collaborate session attached to node: @nid, entity: @eid.',
+        ['@nid' => $entity->get('entity_id')->value, '@eid' => $entity->id()]
+      )
+    );
+    \Drupal::messenger()->addError(
+      t('The site could not load the Collaborate entity.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+        [
+          '@email' => $link = Link::fromTextAndUrl(
+            t('academicsupportonline@arts.ac.uk'),
+            Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+          )->toString(),
+        ]
+      )
+    );
+  }
+  else {
+    $entity->set('sessionId', $collaborate_session->id);
+    $entity->set('guestURL', $collaborate_session->guestUrl);
+    $entity->save();
+  }
+}
+
+/**
+ * Updates the Collaborate remote session on changes to the entity.
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $entity
+ *   The Collaborate session entity.
+ *
+ * @throws \GuzzleHttp\Exception\GuzzleException
+ */
+function collaborate_integration_collaborate_session_update(EntityInterface $entity) {
+  if (!empty($entity->original)) {
+    $original_fields = $entity->original->getFields();
+    $update_fields = $entity->getFields();
+    // These fields are either updated via the node hook as they are based on
+    // the node fields or they are non user relevant.
+    $reserved = [
+      'id',
+      'uuid',
+      'entity_type',
+      'entity_id',
+      'sessionId',
+      'changed',
+      'name',
+      'description',
+      'datetime'
+    ];
+    $update = FALSE;
+    foreach ($update_fields as $key => $value) {
+      if (!in_array($key, $reserved)) {
+        if ($value->value != $original_fields[$key]->value) {
+          $update = TRUE;
+        }
+      }
+    }
+
+    if ($update === TRUE) {
+      /** @var Drupal\collaborate_integration\CollaborateService $collaborate */
+      $collaborate = \Drupal::service('collaborate_integration.collaborate');
+
+      if ($collaborate->updateSession($entity) === FALSE) {
+        \Drupal::logger('collaborate_integration')->error(
+          t(
+            'Could not update the Collaborate session attached to node: @nid, entity: @eid.',
+            [
+              '@nid' => $entity->get('entity_id')->value,
+              '@eid' => $entity->id()
+            ]
+          )
+        );
+        \Drupal::messenger()->addError(
+          t('The site could not update the Collaborate session.  An error has been logged.<br>Please contact @email with the link to the content if you require urgent support.',
+            [
+              '@email' => $link = Link::fromTextAndUrl(
+                t('academicsupportonline@arts.ac.uk'),
+                Url::fromUri("mailto:academicsupportonline@arts.ac.uk")
+              )->toString(),
+            ]
+          )
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Delete Collaborate entities and sessions on node delete.
+ *
+ * @param \Drupal\node\NodeInterface $node
+ *   The node interface.
+ *
+ * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+ * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+ * @throws \Drupal\Core\Entity\EntityStorageException
+ * @throws \GuzzleHttp\Exception\GuzzleException
+ */
+function collaborate_integration_node_delete(NodeInterface $node) {
+  $target_id = collaborate_session_ref_check($node);
+  if (!$target_id) {
+    return;
+  }
+  $entity = \Drupal::entityTypeManager()
+    ->getStorage('collaborate_session')
+    ->load($target_id);
+  /** @var Drupal\collaborate_integration\CollaborateService $collaborate */
+  $collaborate = \Drupal::service('collaborate_integration.collaborate');
+  $collaborate->deleteSession($entity);
+  $entity->delete();
+}
+
+/**
+ * Check if a Collaborate session reference is set on the node.
+ *
+ * @param \Drupal\node\NodeInterface $node
+ *   The node interface.
+ *
+ * @return false|int
+ *   Returns false if no reference is set, or the target_id if one is set.
+ */
+function collaborate_session_ref_check($node) {
+  if (!$node->hasField('field_collaborate_session_ref')) {
+    return FALSE;
+  }
+  $target_id = $node->get('field_collaborate_session_ref')->target_id;
+  if (empty($target_id)) {
+    return FALSE;
+  }
+  else {
+    return $target_id;
+  }
+}

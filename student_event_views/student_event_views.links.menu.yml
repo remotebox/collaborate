@@ -1,0 +1,5 @@
+student_event_views.registrations:
+  title: Recordings and registrations
+  menu_name: main
+  route_name: student_event_views.my_registrations_form
+  expanded: FALSE

@@ -1,0 +1,38 @@
+<?php
+
+/**
+ * @file
+ * Contains student_event_views.module.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+
+/**
+ * Implements hook_help().
+ */
+function student_event_views_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the student_event_views module.
+    case 'help.page.student_event_views':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('Provides blocks / pages for students to view their events because views won&#039;&#039;t allow viewing if the registration is created for them.') . '</p>';
+      return $output;
+
+    default:
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function student_event_views_theme() {
+  return [
+    'upcoming_registrations_block' => [
+      'variables' => [
+        'content' => NULL
+      ],
+      'render element' => 'children',
+    ],
+  ];
+}

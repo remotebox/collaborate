@@ -1,0 +1,30 @@
+collaborate_integration.auth_settings:
+  route_name: collaborate_integration.auth_settings
+  title: 'Authentication settings'
+  base_route: collaborate_integration.auth_settings
+
+collaborate_integration.site_settings:
+  route_name: collaborate_integration.site_settings
+  title: 'Site settings'
+  base_route: collaborate_integration.auth_settings
+# Collaborate session routing definition
+collaborate_session.settings_tab:
+  route_name: collaborate_session.settings
+  title: 'Settings'
+  base_route: collaborate_session.settings
+
+entity.collaborate_session.canonical:
+  route_name: entity.collaborate_session.canonical
+  base_route: entity.collaborate_session.canonical
+  title: 'View'
+
+entity.collaborate_session.edit_form:
+  route_name: entity.collaborate_session.edit_form
+  base_route: entity.collaborate_session.canonical
+  title: 'Edit'
+
+entity.collaborate_session.delete_form:
+  route_name:  entity.collaborate_session.delete_form
+  base_route:  entity.collaborate_session.canonical
+  title: Delete
+  weight: 10

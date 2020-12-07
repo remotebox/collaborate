@@ -1,0 +1,5 @@
+name: 'Student event views'
+type: module
+description: 'Provides blocks / pages for students to view their events because views won''t allow viewing if the registration is created for them.'
+core: 8.x
+package: 'ual'

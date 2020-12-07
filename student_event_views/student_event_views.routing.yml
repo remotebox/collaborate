@@ -1,0 +1,16 @@
+student_event_views.my_registrations_form:
+  path: '/recordings-registrations'
+  defaults:
+    _form: '\Drupal\student_event_views\Form\MyRegistrationsForm'
+    _title: 'Recordings and registrations'
+  requirements:
+    _role: 'authenticated'
+
+student_event_views.registration_management_controller_showRegistrations:
+  path: '/recordings-registrations-dev'
+  defaults:
+    _controller: '\Drupal\student_event_views\Controller\RegistrationManagementController::showRegistrations'
+    _title: 'Recordings and registrations'
+  no_cache: 'TRUE'
+  requirements:
+    _permission: 'access content'

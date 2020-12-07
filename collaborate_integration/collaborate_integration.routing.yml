@@ -1,0 +1,31 @@
+collaborate_integration.admin:
+  path: '/admin/config/collaborate'
+  defaults:
+    _controller: '\Drupal\system\Controller\SystemController::systemAdminMenuBlockPage'
+    _title: 'Collaborate integration'
+  requirements:
+    _role: 'administrator'
+
+collaborate_integration.auth_settings:
+  path: '/admin/config/collaborate/auth'
+  defaults:
+    _form: 'Drupal\collaborate_integration\Form\CollaborateAuthForm'
+    _title: 'Authentication settings'
+  requirements:
+    _role: 'administrator'
+
+collaborate_integration.site_settings:
+  path: '/admin/config/collaborate/settings'
+  defaults:
+    _form: '\Drupal\collaborate_integration\Form\CollaborateSettingsForm'
+    _title: 'Site settings'
+  requirements:
+    _role: 'administrator'
+
+collaborate_integration.update_status:
+  path: '/collaborate/status-update'
+  defaults:
+    _controller: '\Drupal\collaborate_integration\Controller\ChangeStatusController::updateStatus'
+    methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'

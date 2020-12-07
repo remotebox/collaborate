@@ -1,0 +1,5 @@
+name: 'Events register'
+type: module
+description: 'Displays the users events registers.'
+core: 8.x
+package: 'UAL'

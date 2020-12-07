@@ -1,0 +1,4 @@
+services:
+  collaborate_integration.collaborate:
+    class: Drupal\collaborate_integration\CollaborateService
+    arguments: ['@config.factory','@messenger', '@logger.factory', '@http_client', '@current_user', '@entity_type.manager']

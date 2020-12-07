@@ -1,0 +1,5 @@
+entity.collaborate_session.add_form:
+  route_name: entity.collaborate_session.add_form
+  title: 'Add Collaborate session'
+  appears_on:
+    - entity.collaborate_session.collection

@@ -1,0 +1,5 @@
+events_register.events_register_form:
+  title: 'Register'
+  menu_name: teaching
+  parent: ual_tools.listing
+  route_name: events_register.events_register_form

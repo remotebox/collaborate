@@ -1,0 +1,8 @@
+change_status:
+  version: VERSION
+  js:
+    js/changeStatus.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/drupalSettings

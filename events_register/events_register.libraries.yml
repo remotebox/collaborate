@@ -1,0 +1,5 @@
+unbooked_toggle:
+  js:
+    js/unbooked_toggle.js: {}
+  dependencies:
+    - core/jquery

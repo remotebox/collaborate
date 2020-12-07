@@ -1,0 +1,6 @@
+'access own event registers':
+  title: Access own event registers
+  description: Allow users to access their own event registers
+'access others registers':
+  title: Access others event registers
+  description: Allow users to access others event registers

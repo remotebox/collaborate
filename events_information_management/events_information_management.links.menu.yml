@@ -1,0 +1,5 @@
+events_information_management.duplicate_registration_delete:
+  title: 'Delete duplicate registrations'
+  menu_name: teaching
+  parent: ual_tools.listing
+  route_name: events_information_management.registration_delete_form

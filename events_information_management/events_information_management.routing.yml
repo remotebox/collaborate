@@ -1,0 +1,7 @@
+events_information_management.registration_delete_form:
+  path: '/tools/registration-delete'
+  defaults:
+    _form: '\Drupal\events_information_management\Form\RegistrationDeleteForm'
+    _title: 'Duplicate registration deleter'
+  requirements:
+    _role: 'administrator + aso_staff'

@@ -1,0 +1,6 @@
+'view attendee information':
+  title: View attendee information
+  description: Allows the user to view all attendee information fields on tutorials or workshops.
+'view attended information':
+  title: View attended information
+  description: Allows the user to view all attended information (post event field) on tutorials or workshops.
